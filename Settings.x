@@ -85,7 +85,7 @@ static NSString *GetCacheSize() {
         else {
             ytlSetBool(enabled, key);
 
-            NSArray *keys = @[@"removeLabels", @"removeIndicators", @"reExplore", @"addExplore", @"removeShorts", @"removeSubscriptions", @"removeUploads", @"removeLibrary"];
+            NSArray *keys = @[@"liquidGlassTabBar", @"removeLabels", @"removeIndicators", @"reExplore", @"addExplore", @"removeShorts", @"removeSubscriptions", @"removeUploads", @"removeLibrary"];
             if ([keys containsObject:key]) {
                 [[[%c(YTHeaderContentComboViewController) alloc] init] refreshPivotBar];
             }
@@ -222,7 +222,9 @@ static NSString *GetCacheSize() {
                 [self switchWithTitle:@"NoFreeZoom" key:@"noFreeZoom"],
                 [self switchWithTitle:@"AutoFullscreen" key:@"autoFullscreen"],
                 [self switchWithTitle:@"ExitFullscreen" key:@"exitFullscreen"],
-                [self switchWithTitle:@"NoDoubleTap2Seek" key:@"noDoubleTapToSeek"]
+                [self switchWithTitle:@"NoDoubleTap2Seek" key:@"noDoubleTapToSeek"],
+                [self switchWithTitle:@"PlayerSideGestures" key:@"playerSideGestures"],
+                [self switchWithTitle:@"PlayerLockButton" key:@"playerLockButton"]
             ];
 
             YTSettingsPickerViewController *picker = [[%c(YTSettingsPickerViewController) alloc] initWithNavTitle:LOC(@"Player") pickerSectionTitle:nil rows:rows selectedItemIndex:NSNotFound parentResponder:[self parentResponder]];
@@ -280,6 +282,7 @@ static NSString *GetCacheSize() {
     }
     selectBlock:^BOOL (YTSettingsCell *cell, NSUInteger arg1) {
         NSArray <YTSettingsSectionItem *> *rows = @[
+            [self switchWithTitle:@"LiquidGlass" key:@"liquidGlassTabBar"],
             [self switchWithTitle:@"RemoveLabels" key:@"removeLabels"],
             [self switchWithTitle:@"RemoveIndicators" key:@"removeIndicators"],
             [self switchWithTitle:@"ReExplore" key:@"reExplore"],

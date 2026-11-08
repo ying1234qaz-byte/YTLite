@@ -4,6 +4,293 @@ static UIImage *YTImageNamed(NSString *imageName) {
     return [UIImage imageNamed:imageName inBundle:[NSBundle mainBundle] compatibleWithTraitCollection:nil];
 }
 
+static const void *kYTLLiquidGlassViewKey = &kYTLLiquidGlassViewKey;
+static const void *kYTLLiquidGlassOriginalColorKey = &kYTLLiquidGlassOriginalColorKey;
+static const void *kYTLLiquidGlassOriginalOpaqueKey = &kYTLLiquidGlassOriginalOpaqueKey;
+static const void *kYTLPlayerInteractionControllerKey = &kYTLPlayerInteractionControllerKey;
+
+static BOOL YTLIsIOS26OrNewer(void) {
+    return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26;
+}
+
+static void YTLUpdateLiquidGlassTabBar(YTPivotBarView *tabBar) {
+    UIVisualEffectView *glassView = objc_getAssociatedObject(tabBar, kYTLLiquidGlassViewKey);
+    BOOL shouldUseGlass = ytlBool(@"liquidGlassTabBar") && YTLIsIOS26OrNewer();
+
+    if (!shouldUseGlass) {
+        [glassView removeFromSuperview];
+        objc_setAssociatedObject(tabBar, kYTLLiquidGlassViewKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        id originalColor = objc_getAssociatedObject(tabBar, kYTLLiquidGlassOriginalColorKey);
+        if (originalColor) {
+            tabBar.backgroundColor = originalColor == NSNull.null ? nil : originalColor;
+            objc_setAssociatedObject(tabBar, kYTLLiquidGlassOriginalColorKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        NSNumber *originalOpaque = objc_getAssociatedObject(tabBar, kYTLLiquidGlassOriginalOpaqueKey);
+        if (originalOpaque) {
+            tabBar.opaque = originalOpaque.boolValue;
+            objc_setAssociatedObject(tabBar, kYTLLiquidGlassOriginalOpaqueKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        return;
+    }
+
+    if (!glassView) {
+        Class glassEffectClass = NSClassFromString(@"UIGlassEffect");
+        SEL initWithStyle = NSSelectorFromString(@"initWithStyle:");
+        if (!glassEffectClass || ![glassEffectClass instancesRespondToSelector:initWithStyle]) return;
+
+        id glassEffect = ((id (*)(id, SEL, NSInteger))objc_msgSend)([glassEffectClass alloc], initWithStyle, 0);
+        if ([glassEffect respondsToSelector:NSSelectorFromString(@"setInteractive:")]) {
+            ((void (*)(id, SEL, BOOL))objc_msgSend)(glassEffect, NSSelectorFromString(@"setInteractive:"), YES);
+        }
+
+        id savedColor = tabBar.backgroundColor ?: NSNull.null;
+        objc_setAssociatedObject(tabBar, kYTLLiquidGlassOriginalColorKey, savedColor, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(tabBar, kYTLLiquidGlassOriginalOpaqueKey, @(tabBar.isOpaque), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        glassView = [[UIVisualEffectView alloc] initWithEffect:glassEffect];
+        glassView.userInteractionEnabled = NO;
+        glassView.clipsToBounds = YES;
+        glassView.accessibilityIdentifier = @"YTLite.LiquidGlassTabBar";
+        objc_setAssociatedObject(tabBar, kYTLLiquidGlassViewKey, glassView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [tabBar insertSubview:glassView atIndex:0];
+        tabBar.backgroundColor = UIColor.clearColor;
+        tabBar.opaque = NO;
+        tabBar.clipsToBounds = NO;
+    }
+
+    if (glassView.superview != tabBar) [tabBar insertSubview:glassView atIndex:0];
+    CGFloat horizontalInset = MIN(10.0, CGRectGetWidth(tabBar.bounds) * 0.025);
+    CGRect glassFrame = UIEdgeInsetsInsetRect(tabBar.bounds, UIEdgeInsetsMake(3.0, horizontalInset, 4.0, horizontalInset));
+    glassView.frame = glassFrame;
+    glassView.layer.cornerRadius = CGRectGetHeight(glassFrame) * 0.5;
+    [tabBar sendSubviewToBack:glassView];
+}
+
+@interface YTLPlayerInteractionController : NSObject <UIGestureRecognizerDelegate>
+@property (nonatomic, weak) UIView *playerView;
+@property (nonatomic, strong) UIPanGestureRecognizer *sidePanGesture;
+@property (nonatomic, strong) UIButton *lockButton;
+@property (nonatomic, strong) UIView *blockingView;
+@property (nonatomic, strong) UIButton *unlockButton;
+@property (nonatomic, strong) MPVolumeView *volumeView;
+@property (nonatomic, weak) UISlider *volumeSlider;
+@property (nonatomic, strong) UIVisualEffectView *adjustmentHUD;
+@property (nonatomic, strong) UIImageView *adjustmentIcon;
+@property (nonatomic, strong) UIProgressView *adjustmentProgress;
+@property (nonatomic, strong) UILabel *adjustmentLabel;
+@property (nonatomic, assign) BOOL locked;
+@property (nonatomic, assign) BOOL adjustingVolume;
+@property (nonatomic, assign) CGFloat adjustmentStartValue;
+- (instancetype)initWithPlayerView:(UIView *)playerView;
+- (void)updateLayout;
+@end
+
+@implementation YTLPlayerInteractionController
+
+- (instancetype)initWithPlayerView:(UIView *)playerView {
+    self = [super init];
+    if (!self) return nil;
+
+    _playerView = playerView;
+
+    _sidePanGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleSidePan:)];
+    _sidePanGesture.delegate = self;
+    _sidePanGesture.maximumNumberOfTouches = 1;
+    _sidePanGesture.cancelsTouchesInView = NO;
+    [playerView addGestureRecognizer:_sidePanGesture];
+
+    _volumeView = [[MPVolumeView alloc] initWithFrame:CGRectMake(-100, -100, 1, 1)];
+    _volumeView.alpha = 0.01;
+    _volumeView.userInteractionEnabled = NO;
+    [playerView addSubview:_volumeView];
+    [_volumeView layoutIfNeeded];
+    for (UIView *subview in _volumeView.subviews) {
+        if ([subview isKindOfClass:UISlider.class]) {
+            _volumeSlider = (UISlider *)subview;
+            break;
+        }
+    }
+
+    _lockButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_lockButton setImage:[UIImage systemImageNamed:@"lock.open"] forState:UIControlStateNormal];
+    _lockButton.tintColor = UIColor.whiteColor;
+    _lockButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.55];
+    _lockButton.layer.cornerRadius = 20.0;
+    _lockButton.accessibilityLabel = LOC(@"PlayerLockButton");
+    [_lockButton addTarget:self action:@selector(lockPlayer) forControlEvents:UIControlEventTouchUpInside];
+    [playerView addSubview:_lockButton];
+
+    _blockingView = [[UIView alloc] initWithFrame:playerView.bounds];
+    _blockingView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.001];
+    _blockingView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _blockingView.hidden = YES;
+    [playerView addSubview:_blockingView];
+
+    _unlockButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_unlockButton setImage:[UIImage systemImageNamed:@"lock.open.fill"] forState:UIControlStateNormal];
+    _unlockButton.tintColor = UIColor.whiteColor;
+    _unlockButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.58];
+    _unlockButton.layer.cornerRadius = 22.0;
+    _unlockButton.accessibilityLabel = LOC(@"PlayerUnlockButton");
+    [_unlockButton addTarget:self action:@selector(unlockPlayer) forControlEvents:UIControlEventTouchUpInside];
+    [_blockingView addSubview:_unlockButton];
+
+    UIBlurEffect *hudBlur = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
+    _adjustmentHUD = [[UIVisualEffectView alloc] initWithEffect:hudBlur];
+    _adjustmentHUD.userInteractionEnabled = NO;
+    _adjustmentHUD.layer.cornerRadius = 16.0;
+    _adjustmentHUD.clipsToBounds = YES;
+    _adjustmentHUD.hidden = YES;
+    [playerView addSubview:_adjustmentHUD];
+
+    _adjustmentIcon = [[UIImageView alloc] initWithFrame:CGRectZero];
+    _adjustmentIcon.tintColor = UIColor.whiteColor;
+    _adjustmentIcon.contentMode = UIViewContentModeScaleAspectFit;
+    [_adjustmentHUD.contentView addSubview:_adjustmentIcon];
+
+    _adjustmentProgress = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault];
+    _adjustmentProgress.progressTintColor = UIColor.whiteColor;
+    _adjustmentProgress.trackTintColor = [UIColor colorWithWhite:1 alpha:0.25];
+    [_adjustmentHUD.contentView addSubview:_adjustmentProgress];
+
+    _adjustmentLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    _adjustmentLabel.textColor = UIColor.whiteColor;
+    _adjustmentLabel.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightBold];
+    _adjustmentLabel.textAlignment = NSTextAlignmentCenter;
+    [_adjustmentHUD.contentView addSubview:_adjustmentLabel];
+
+    [self updateLayout];
+    return self;
+}
+
+- (void)dealloc {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
+}
+
+- (void)updateLayout {
+    UIView *playerView = self.playerView;
+    if (!playerView) return;
+
+    BOOL lockEnabled = ytlBool(@"playerLockButton");
+    if (!lockEnabled && self.locked) [self unlockPlayer];
+    self.lockButton.hidden = !lockEnabled || self.locked;
+    self.sidePanGesture.enabled = ytlBool(@"playerSideGestures") && !self.locked;
+
+    CGFloat top = MAX(12.0, playerView.safeAreaInsets.top + 8.0);
+    self.lockButton.frame = CGRectMake(58.0, top, 40.0, 40.0);
+    self.blockingView.frame = playerView.bounds;
+    self.unlockButton.frame = CGRectMake(MAX(12.0, CGRectGetWidth(playerView.bounds) - 58.0), top, 44.0, 44.0);
+
+    CGSize hudSize = CGSizeMake(116.0, 112.0);
+    CGFloat hudX = self.adjustingVolume ? 22.0 : MAX(22.0, CGRectGetWidth(playerView.bounds) - hudSize.width - 22.0);
+    self.adjustmentHUD.frame = CGRectMake(hudX, (CGRectGetHeight(playerView.bounds) - hudSize.height) * 0.5, hudSize.width, hudSize.height);
+    self.adjustmentIcon.frame = CGRectMake(44.0, 14.0, 28.0, 28.0);
+    self.adjustmentProgress.frame = CGRectMake(16.0, 57.0, 84.0, 4.0);
+    self.adjustmentLabel.frame = CGRectMake(8.0, 72.0, 100.0, 24.0);
+
+    if (self.locked) {
+        [playerView bringSubviewToFront:self.blockingView];
+    } else {
+        [playerView bringSubviewToFront:self.adjustmentHUD];
+        [playerView bringSubviewToFront:self.lockButton];
+    }
+}
+
+- (void)lockPlayer {
+    self.locked = YES;
+    self.adjustmentHUD.hidden = YES;
+    self.lockButton.hidden = YES;
+    self.blockingView.hidden = NO;
+    self.sidePanGesture.enabled = NO;
+    [self updateLayout];
+}
+
+- (void)unlockPlayer {
+    self.locked = NO;
+    self.blockingView.hidden = YES;
+    self.lockButton.hidden = !ytlBool(@"playerLockButton");
+    self.sidePanGesture.enabled = ytlBool(@"playerSideGestures");
+    [self updateLayout];
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if (gestureRecognizer != self.sidePanGesture || self.locked || !ytlBool(@"playerSideGestures")) return NO;
+
+    UIPanGestureRecognizer *pan = (UIPanGestureRecognizer *)gestureRecognizer;
+    CGPoint velocity = [pan velocityInView:self.playerView];
+    if (fabs(velocity.y) <= fabs(velocity.x) * 1.3) return NO;
+
+    CGFloat width = MAX(CGRectGetWidth(self.playerView.bounds), 1.0);
+    CGFloat startRatio = [pan locationInView:self.playerView].x / width;
+    return startRatio <= 0.30 || startRatio >= 0.70;
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    // Never let YouTube's seek/dismiss pan run alongside a brightness or
+    // volume adjustment. Taps and long presses remain unaffected.
+    return ![otherGestureRecognizer isKindOfClass:UIPanGestureRecognizer.class];
+}
+
+- (void)handleSidePan:(UIPanGestureRecognizer *)pan {
+    UIView *playerView = self.playerView;
+    if (!playerView || self.locked) return;
+
+    CGFloat width = MAX(CGRectGetWidth(playerView.bounds), 1.0);
+    CGFloat startRatio = [pan locationInView:playerView].x / width;
+
+    if (pan.state == UIGestureRecognizerStateBegan) {
+        self.adjustingVolume = startRatio <= 0.30;
+        self.adjustmentStartValue = self.adjustingVolume ? self.volumeSlider.value : UIScreen.mainScreen.brightness;
+        self.adjustmentIcon.image = [UIImage systemImageNamed:self.adjustingVolume ? @"speaker.wave.2.fill" : @"sun.max.fill"];
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideAdjustmentHUD) object:nil];
+        self.adjustmentHUD.hidden = NO;
+        [self updateLayout];
+    }
+
+    if (pan.state == UIGestureRecognizerStateBegan || pan.state == UIGestureRecognizerStateChanged) {
+        CGFloat height = MAX(CGRectGetHeight(playerView.bounds) * 0.65, 1.0);
+        CGFloat value = self.adjustmentStartValue - [pan translationInView:playerView].y / height;
+        value = MIN(MAX(value, 0.0), 1.0);
+
+        if (self.adjustingVolume) {
+            [self.volumeSlider setValue:value animated:NO];
+            [self.volumeSlider sendActionsForControlEvents:UIControlEventValueChanged];
+        } else {
+            UIScreen.mainScreen.brightness = value;
+        }
+
+        self.adjustmentProgress.progress = value;
+        self.adjustmentLabel.text = [NSString stringWithFormat:@"%.0f%%", value * 100.0];
+    }
+
+    if (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled || pan.state == UIGestureRecognizerStateFailed) {
+        [self performSelector:@selector(hideAdjustmentHUD) withObject:nil afterDelay:0.65];
+    }
+}
+
+- (void)hideAdjustmentHUD {
+    [UIView animateWithDuration:0.18 animations:^{
+        self.adjustmentHUD.alpha = 0.0;
+    } completion:^(BOOL finished) {
+        self.adjustmentHUD.hidden = YES;
+        self.adjustmentHUD.alpha = 1.0;
+    }];
+}
+
+@end
+
+static void YTLInstallPlayerInteractions(YTPlayerViewController *playerViewController) {
+    if ([playerViewController.parentViewController isKindOfClass:NSClassFromString(@"YTShortsPlayerViewController")]) return;
+
+    YTLPlayerInteractionController *controller = objc_getAssociatedObject(playerViewController, kYTLPlayerInteractionControllerKey);
+    if (!controller || controller.playerView != playerViewController.view) {
+        controller = [[YTLPlayerInteractionController alloc] initWithPlayerView:playerViewController.view];
+        objc_setAssociatedObject(playerViewController, kYTLPlayerInteractionControllerKey, controller, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    [controller updateLayout];
+}
+
 // YouTube-X (https://github.com/PoomSmart/YouTube-X/)
 // Background Playback
 %hook YTIPlayabilityStatus
@@ -426,6 +713,16 @@ void autoSkipShorts(YTPlayerViewController *self, YTSingleVideoController *video
 }
 
 %hook YTPlayerViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    YTLInstallPlayerInteractions(self);
+}
+
+- (void)viewDidLayoutSubviews {
+    %orig;
+    YTLInstallPlayerInteractions(self);
+}
+
 - (void)loadWithPlayerTransition:(id)arg1 playbackConfig:(id)arg2 {
     %orig;
 
@@ -1139,6 +1436,16 @@ static void genImageFromLayer(CALayer *layer, UIColor *backgroundColor, void (^c
 
 // Remove Tabs
 %hook YTPivotBarView
+- (void)didMoveToWindow {
+    %orig;
+    YTLUpdateLiquidGlassTabBar(self);
+}
+
+- (void)layoutSubviews {
+    %orig;
+    YTLUpdateLiquidGlassTabBar(self);
+}
+
 - (void)setRenderer:(YTIPivotBarRenderer *)renderer {
     NSMutableArray <YTIPivotBarSupportedRenderers *> *items = [renderer itemsArray];
 

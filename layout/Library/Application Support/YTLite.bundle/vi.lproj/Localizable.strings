@@ -539,7 +539,12 @@
 /* Interface options */
 "Interface" = "Giao diện";
 "LiquidGlass" = "Liquid Glass";
-"LiquidGlassDesc" = "Adapts some elements to Liquid Glass.";
+"LiquidGlassDesc" = "Dùng hiệu ứng Liquid Glass hệ thống cho thanh tab trên iOS 26 trở lên.";
+"PlayerSideGestures" = "Vuốt chỉnh sáng và âm lượng";
+"PlayerSideGesturesDesc" = "Vuốt dọc bên trái để chỉnh âm lượng, bên phải để chỉnh độ sáng.";
+"PlayerLockButton" = "Khóa thao tác trình phát";
+"PlayerLockButtonDesc" = "Thêm nút khóa để chặn mọi thao tác cho đến khi bạn mở khóa.";
+"PlayerUnlockButton" = "Mở khóa trình phát";
 "OledTheme" = "Chủ đề OLED";
 "OledThemeDesc" = "Chuyển tất cả màu tối thành màu đen tuyền.";
 "OledKeyboard" = "Bàn phím OLED";

@@ -540,6 +540,11 @@
 "Interface" = "Interface";
 "LiquidGlass" = "Liquid Glass";
 "LiquidGlassDesc" = "Adapts some elements to Liquid Glass.";
+"PlayerSideGestures" = "Side brightness and volume gestures";
+"PlayerSideGesturesDesc" = "Swipe vertically on the left side for volume and on the right side for brightness.";
+"PlayerLockButton" = "Player interaction lock";
+"PlayerLockButtonDesc" = "Adds a lock button that blocks all player interactions until you unlock it.";
+"PlayerUnlockButton" = "Unlock player";
 "OledTheme" = "OLED theme";
 "OledThemeDesc" = "Turns all dark colors to black";
 "OledKeyboard" = "OLED keyboard";

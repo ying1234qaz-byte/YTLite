@@ -1,0 +1,41 @@
+name: Build custom YouTube Plus source
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install build dependencies
+        run: brew install make ldid dpkg
+
+      - name: Set up Theos
+        run: |
+          git clone --quiet --recursive https://github.com/theos/theos.git "$GITHUB_WORKSPACE/theos"
+          git -C "$GITHUB_WORKSPACE/theos" checkout 9bc73406cf80b711ef4d02c15ff1dedc4478a275
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> "$GITHUB_ENV"
+
+      - name: Install iOS SDK and YouTube headers
+        run: |
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks.git sdk-source
+          git -C sdk-source sparse-checkout set --no-cone iPhoneOS16.5.sdk
+          git -C sdk-source checkout
+          mv sdk-source/*.sdk "$THEOS/sdks/"
+          git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git "$GITHUB_WORKSPACE/../YouTubeHeader"
+          cp -R "$GITHUB_WORKSPACE/../YouTubeHeader" "$THEOS/include/YouTubeHeader"
+
+      - name: Build custom tweak
+        run: make clean package DEBUG=0 FINALPACKAGE=1
+
+      - name: Upload custom tweak
+        uses: actions/upload-artifact@v7
+        with:
+          name: custom-ytlite-deb
+          path: packages/*.deb
+          if-no-files-found: error
+          retention-days: 1
