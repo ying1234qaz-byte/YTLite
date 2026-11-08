@@ -34,6 +34,20 @@ jobs:
       - name: Build custom tweak
         run: make clean package DEBUG=0 FINALPACKAGE=1
 
+      - name: Patch sideload framework path
+        run: |
+          deb="$(find packages -maxdepth 1 -name '*.deb' | head -n 1)"
+          dpkg-deb -R "$deb" patched-deb
+          dylib="patched-deb/Library/MobileSubstrate/DynamicLibraries/YTLite.dylib"
+          install_name_tool \
+            -change /Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate \
+            @rpath/CydiaSubstrate.framework/CydiaSubstrate \
+            "$dylib"
+          ldid -S "$dylib"
+          rm "$deb"
+          dpkg-deb --root-owner-group -b patched-deb "$deb"
+          otool -L "$dylib"
+
       - name: Upload custom tweak
         uses: actions/upload-artifact@v7
         with:
