@@ -223,7 +223,6 @@ static NSString *GetCacheSize() {
                 [self switchWithTitle:@"AutoFullscreen" key:@"autoFullscreen"],
                 [self switchWithTitle:@"ExitFullscreen" key:@"exitFullscreen"],
                 [self switchWithTitle:@"NoDoubleTap2Seek" key:@"noDoubleTapToSeek"],
-                [self switchWithTitle:@"PlayerSideGestures" key:@"playerSideGestures"],
                 [self switchWithTitle:@"PlayerLockButton" key:@"playerLockButton"]
             ];
 

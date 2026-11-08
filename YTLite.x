@@ -175,7 +175,7 @@ static void YTLUpdateLiquidGlassTabBar(YTPivotBarView *tabBar) {
     BOOL lockEnabled = ytlBool(@"playerLockButton");
     if (!lockEnabled && self.locked) [self unlockPlayer];
     self.lockButton.hidden = !lockEnabled || self.locked;
-    self.sidePanGesture.enabled = ytlBool(@"playerSideGestures") && !self.locked;
+    self.sidePanGesture.enabled = NO;
 
     CGFloat top = MAX(12.0, playerView.safeAreaInsets.top + 8.0);
     self.lockButton.frame = CGRectMake(58.0, top, 40.0, 40.0);
@@ -210,20 +210,12 @@ static void YTLUpdateLiquidGlassTabBar(YTPivotBarView *tabBar) {
     self.locked = NO;
     self.blockingView.hidden = YES;
     self.lockButton.hidden = !ytlBool(@"playerLockButton");
-    self.sidePanGesture.enabled = ytlBool(@"playerSideGestures");
+    self.sidePanGesture.enabled = NO;
     [self updateLayout];
 }
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
-    if (gestureRecognizer != self.sidePanGesture || self.locked || !ytlBool(@"playerSideGestures")) return NO;
-
-    UIPanGestureRecognizer *pan = (UIPanGestureRecognizer *)gestureRecognizer;
-    CGPoint velocity = [pan velocityInView:self.playerView];
-    if (fabs(velocity.y) <= fabs(velocity.x) * 1.3) return NO;
-
-    CGFloat width = MAX(CGRectGetWidth(self.playerView.bounds), 1.0);
-    CGFloat startRatio = [pan locationInView:self.playerView].x / width;
-    return startRatio <= 0.30 || startRatio >= 0.70;
+    return NO;
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
@@ -974,9 +966,17 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
 
 %hook ASCollectionView
 - (CGSize)sizeForElement:(ASCollectionElement *)element {
+    ASCellNode *elementNode = [element node];
+    NSString *elementIdentifier = elementNode.accessibilityIdentifier.lowercaseString ?: @"";
+    ASNodeController *elementController = [elementNode controller];
+    NSArray *shortsIdentifiers = @[@"eml.shorts-grid", @"eml.shorts-shelf", @"shorts_shelf.eml", @"shorts_video_cell.eml"];
+    BOOL isShortsShelf = [elementIdentifier containsString:@"shorts-grid"] ||
+                         [elementIdentifier containsString:@"shorts-shelf"] ||
+                         findCell(elementController, shortsIdentifiers);
+    if (isShortsShelf) return CGSizeZero;
+
     if ([self.accessibilityIdentifier isEqualToString:@"id.video.scrollable_action_bar"]) {
-        ASCellNode *node = [element node];
-        ASNodeController *nodeController = [node controller];
+        ASNodeController *nodeController = elementController;
 
         if (ytlBool(@"noPlayerRemixButton") && findCell(nodeController, @[@"id.video.remix.button"])) {
             return CGSizeZero;
@@ -1001,18 +1001,20 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
     UICollectionViewCell *cell = %orig;
 
     if ([cell isKindOfClass:objc_lookUpClass("_ASCollectionViewCell")]) {
-        _ASCollectionViewCell *cell = %orig;
-        if ([cell respondsToSelector:@selector(node)]) {
-            NSString *idToRemove = [[cell node] accessibilityIdentifier];
+        _ASCollectionViewCell *asyncCell = (_ASCollectionViewCell *)cell;
+        if ([asyncCell respondsToSelector:@selector(node)]) {
+            NSString *idToRemove = [[asyncCell node] accessibilityIdentifier];
             if ([idToRemove isEqualToString:@"statement_banner.view"] ||
-                (([idToRemove isEqualToString:@"eml.shorts-grid"] || [idToRemove isEqualToString:@"eml.shorts-shelf"]) && ytlBool(@"hideShorts"))) {
+                [idToRemove isEqualToString:@"eml.shorts-grid"] ||
+                [idToRemove isEqualToString:@"eml.shorts-shelf"]) {
                 [self removeCellsAtIndexPath:indexPath];
             }
         }
-    } else if (([cell isKindOfClass:objc_lookUpClass("YTReelShelfCell")] && ytlBool(@"hideShorts")) ||
+    } else if ([cell isKindOfClass:objc_lookUpClass("YTReelShelfCell")] ||
         ([cell isKindOfClass:objc_lookUpClass("YTHorizontalCardListCell")] && ytlBool(@"noContinueWatching"))) {
         [self removeCellsAtIndexPath:indexPath];
-    } return %orig;
+    }
+    return cell;
 }
 
 %new
