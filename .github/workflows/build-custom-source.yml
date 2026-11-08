@@ -28,6 +28,8 @@ jobs:
           mv sdk-source/*.sdk "$THEOS/sdks/"
           git clone --quiet --depth=1 https://github.com/PoomSmart/YouTubeHeader.git "$GITHUB_WORKSPACE/../YouTubeHeader"
           cp -R "$GITHUB_WORKSPACE/../YouTubeHeader" "$THEOS/include/YouTubeHeader"
+          git clone --quiet --recursive --shallow-submodules https://github.com/jkhsjdhjs/youtube-native-share.git native-share-source
+          mv native-share-source/protobuf "$GITHUB_WORKSPACE/../protobuf"
 
       - name: Build custom tweak
         run: make clean package DEBUG=0 FINALPACKAGE=1
